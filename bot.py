@@ -7,9 +7,9 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
 
 # --- CẤU HÌNH ---
-TELEGRAM_TOKEN = os.environ.get("8434809055:AAEO6AQoRUqN4cSpOppfSGOJHoOPF9NuwxM")
-PAGE_ID = os.environ.get("584599948078305")
-PAGE_ACCESS_TOKEN = os.environ.get("EAAVmnqZCromIBP66TB5asI3nDuAkTZAGqYfUjYuIPR5mCl3J5sfZBueF8g55UDlnCI3ch58VxEPbQ5ZCYykncFySKGI5OV3dsKf1qcOmNT1LHpC03XV1RfhMOVT7q7AX1xBmKPeC9HnVb569ddPjivkjmvLQbgro0UQ4p3UZBWoZAtIZAYr8yBSel5eC64ULcj8epsH")
+TELEGRAM_TOKEN = os.environ.get(8434809055:AAEO6AQoRUqN4cSpOppfSGOJHoOPF9NuwxM)
+PAGE_ID = os.environ.get(584599948078305)
+PAGE_ACCESS_TOKEN = os.environ.get(EAAVmnqZCromIBP66TB5asI3nDuAkTZAGqYfUjYuIPR5mCl3J5sfZBueF8g55UDlnCI3ch58VxEPbQ5ZCYykncFySKGI5OV3dsKf1qcOmNT1LHpC03XV1RfhMOVT7q7AX1xBmKPeC9HnVb569ddPjivkjmvLQbgro0UQ4p3UZBWoZAtIZAYr8yBSel5eC64ULcj8epsH)
 
 album_storage = {}
 
@@ -105,3 +105,4 @@ if __name__ == '__main__':
     print("Bot khoi dong...")
 
     app_bot.run_polling()
+
