@@ -1,5 +1,4 @@
 import os
-import time
 import threading
 import requests
 import datetime
@@ -14,7 +13,6 @@ PAGE_ID = os.environ.get("PAGE_ID")
 PAGE_ACCESS_TOKEN = os.environ.get("PAGE_ACCESS_TOKEN")
 
 # Bộ nhớ tạm
-# Cấu trúc: { group_id: { images: [], caption: '', gather_timer: Timer, cleanup_timer: Timer } }
 album_storage = {}
 user_states = {} 
 
@@ -22,34 +20,30 @@ app = Flask(__name__)
 
 @app.route('/')
 def index():
-    return "Bot Auto Cleanup is running!"
+    return "Bot Up Bai (Scheduler) Running!"
 
 def run_web_server():
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
 
-# --- HÀM DỌN DẸP (TỰ HỦY) ---
+# --- HÀM DỌN DẸP ---
 def auto_cleanup(media_group_id, chat_id, context):
-    """Sau 5 phút không bấm nút thì xóa dữ liệu"""
     if media_group_id in album_storage:
         del album_storage[media_group_id]
-        # Gửi tin báo
         try:
-            context.bot.send_message(chat_id=chat_id, text="🗑 Album đã bị hủy do quá hạn (5 phút không thao tác).")
+            context.bot.send_message(chat_id=chat_id, text="🗑 Album đã hủy do quá hạn (5 phút).")
         except:
-            pass # Bỏ qua nếu không gửi được tin
-    
+            pass
     if chat_id in user_states:
         del user_states[chat_id]
 
-# --- HÀM ĐĂNG BÀI ---
+# --- HÀM ĐĂNG BÀI LÊN FACEBOOK ---
 def execute_post_to_facebook(media_group_id, chat_id, context, schedule_timestamp=None):
     group_data = album_storage.get(media_group_id)
     if not group_data: 
-        context.bot.send_message(chat_id=chat_id, text="❌ Lỗi: Dữ liệu ảnh đã quá hạn hoặc bị xóa.")
+        context.bot.send_message(chat_id=chat_id, text="❌ Dữ liệu ảnh không còn.")
         return
 
-    # Hủy bộ đếm dọn dẹp (vì user đã bấm nút rồi)
     if group_data.get('cleanup_timer'):
         group_data['cleanup_timer'].cancel()
 
@@ -61,6 +55,7 @@ def execute_post_to_facebook(media_group_id, chat_id, context, schedule_timestam
 
     try:
         fb_media_ids = []
+        # 1. Upload từng ảnh lên FB
         for img_url in images:
             img_data = requests.get(img_url).content
             url_upload = f"https://graph.facebook.com/{PAGE_ID}/photos"
@@ -71,6 +66,7 @@ def execute_post_to_facebook(media_group_id, chat_id, context, schedule_timestam
             if 'id' in res:
                 fb_media_ids.append(res['id'])
         
+        # 2. Tạo bài viết Feed
         if fb_media_ids:
             url_feed = f"https://graph.facebook.com/{PAGE_ID}/feed"
             attached_media = [f'{{"media_fbid":"{mid}"}}' for mid in fb_media_ids]
@@ -81,6 +77,7 @@ def execute_post_to_facebook(media_group_id, chat_id, context, schedule_timestam
                 'access_token': PAGE_ACCESS_TOKEN
             }
 
+            # Xử lý hẹn giờ (Facebook API)
             if schedule_timestamp:
                 payload['published'] = 'false'
                 payload['scheduled_publish_time'] = schedule_timestamp
@@ -92,11 +89,10 @@ def execute_post_to_facebook(media_group_id, chat_id, context, schedule_timestam
             
             if 'id' in res:
                 if schedule_timestamp:
-                    dt_object = datetime.datetime.fromtimestamp(schedule_timestamp)
-                    time_str = dt_object.strftime('%H:%M %d/%m')
-                    context.bot.send_message(chat_id=chat_id, text=f"⏰ ĐÃ LÊN LỊCH!\nBài sẽ đăng lúc: {time_str}")
+                    dt = datetime.datetime.fromtimestamp(schedule_timestamp)
+                    context.bot.send_message(chat_id=chat_id, text=f"⏰ ĐÃ LÊN LỊCH!\nThời gian: {dt.strftime('%H:%M %d/%m')}")
                 else:
-                    context.bot.send_message(chat_id=chat_id, text=f"✅ ĐÃ ĐĂNG NGAY!\nLink: https://fb.com/{res['id']}")
+                    context.bot.send_message(chat_id=chat_id, text=f"✅ ĐÃ ĐĂNG!\nLink: https://fb.com/{res['id']}")
             else:
                 context.bot.send_message(chat_id=chat_id, text=f"❌ Lỗi FB: {res}")
     except Exception as e:
@@ -107,12 +103,10 @@ def execute_post_to_facebook(media_group_id, chat_id, context, schedule_timestam
     if chat_id in user_states:
         del user_states[chat_id]
 
-# --- HỎI Ý KIẾN ---
+# --- HỎI Ý KIẾN NGƯỜI DÙNG ---
 def ask_user_action(media_group_id, chat_id, context):
     group_data = album_storage.get(media_group_id)
     if not group_data: return
-
-    img_count = len(group_data['images'])
     
     keyboard = [
         [InlineKeyboardButton("🚀 Đăng ngay", callback_data=f"now|{media_group_id}")],
@@ -122,12 +116,10 @@ def ask_user_action(media_group_id, chat_id, context):
     
     context.bot.send_message(
         chat_id=chat_id, 
-        text=f"📸 Đã gom {img_count} ảnh.\nBạn có 5 phút để chọn:", 
+        text=f"📸 Đã gom {len(group_data['images'])} ảnh.\nChọn thao tác:", 
         reply_markup=reply_markup
     )
-
-    # BẮT ĐẦU ĐẾM NGƯỢC 5 PHÚT (300 giây)
-    # Nếu sau 300s không ai làm gì -> Gọi hàm auto_cleanup
+    
     t_clean = threading.Timer(300.0, auto_cleanup, args=[media_group_id, chat_id, context])
     group_data['cleanup_timer'] = t_clean
     t_clean.start()
@@ -143,10 +135,9 @@ def button_click(update: Update, context: CallbackContext):
     chat_id = query.message.chat_id
 
     if group_id not in album_storage:
-        query.edit_message_text("⚠️ Album này đã quá hạn hoặc bị xóa.")
+        query.edit_message_text("⚠️ Album quá hạn.")
         return
 
-    # Hủy timer dọn dẹp ngay khi user bấm nút
     if album_storage[group_id].get('cleanup_timer'):
         album_storage[group_id]['cleanup_timer'].cancel()
 
@@ -155,24 +146,24 @@ def button_click(update: Update, context: CallbackContext):
         execute_post_to_facebook(group_id, chat_id, context, schedule_timestamp=None)
         
     elif action == "schedule":
-        query.edit_message_text("✍️ Nhập giờ muốn đăng (VD: 19:30):")
+        query.edit_message_text("✍️ Nhập giờ (VD: 19:30 hoặc 08:00 25/11):")
         user_states[chat_id] = {'action': 'waiting_time', 'group_id': group_id}
-        # Đặt lại timer dọn dẹp thêm 2 phút cho user thong thả nhập
         t_clean = threading.Timer(120.0, auto_cleanup, args=[group_id, chat_id, context])
         album_storage[group_id]['cleanup_timer'] = t_clean
         t_clean.start()
 
-# --- XỬ LÝ TEXT ---
+# --- XỬ LÝ TEXT (NHẬP GIỜ HOẶC CHAT) ---
 def handle_text_input(update: Update, context: CallbackContext):
     chat_id = update.message.chat_id
     text = update.message.text.strip()
     
+    # Nếu không ở trạng thái chờ nhập giờ -> Trả lời Echo để biết bot sống
     if chat_id not in user_states or user_states[chat_id]['action'] != 'waiting_time':
+        update.message.reply_text(f"👋 Bot Đăng Bài đang trực chiến!\nGửi ảnh vào đây để lên bài nhé.")
         return
         
+    # Nếu đang chờ nhập giờ
     group_id = user_states[chat_id]['group_id']
-    
-    # Hủy timer dọn dẹp khi user đã nhập liệu
     if group_id in album_storage and album_storage[group_id].get('cleanup_timer'):
         album_storage[group_id]['cleanup_timer'].cancel()
     
@@ -199,19 +190,18 @@ def handle_text_input(update: Update, context: CallbackContext):
         if target_time:
             diff = (target_time - now).total_seconds()
             if diff < 600:
-                update.message.reply_text("⚠️ Lỗi: Phải hẹn sau ít nhất 10 phút. Nhập lại:")
+                update.message.reply_text("⚠️ Lỗi: Facebook yêu cầu hẹn trước ít nhất 10 phút.")
                 return
-                
             timestamp = int(target_time.timestamp())
             update.message.reply_text(f"✅ OK: {target_time.strftime('%H:%M %d/%m/%Y')}")
             execute_post_to_facebook(group_id, chat_id, context, schedule_timestamp=timestamp)
         else:
-            update.message.reply_text("⚠️ Sai định dạng. Nhập lại (VD: 19:30):")
+            update.message.reply_text("⚠️ Sai định dạng giờ. Nhập lại (VD: 19:30):")
 
     except Exception as e:
         update.message.reply_text(f"❌ Lỗi: {e}")
 
-# --- XỬ LÝ ẢNH ---
+# --- XỬ LÝ ẢNH (GOM ALBUM) ---
 def handle_photo(update: Update, context: CallbackContext):
     msg = update.message
     if not msg.photo: return
@@ -221,12 +211,9 @@ def handle_photo(update: Update, context: CallbackContext):
     new_file = context.bot.get_file(file_id)
     image_url = new_file.file_path
     
-    group_id = msg.media_group_id
-    if not group_id: group_id = f"single_{msg.message_id}"
+    group_id = msg.media_group_id or f"single_{msg.message_id}"
     
     if group_id not in album_storage:
-        # gather_timer: Timer chờ gom ảnh (3s)
-        # cleanup_timer: Timer chờ user bấm nút (300s)
         album_storage[group_id] = {'images': [], 'caption': '', 'gather_timer': None, 'cleanup_timer': None}
     
     album_storage[group_id]['images'].append(image_url)
@@ -247,6 +234,6 @@ if __name__ == '__main__':
     dp.add_handler(CallbackQueryHandler(button_click))
     dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_text_input))
     
-    print("Bot Auto Cleanup Ready...")
+    print("Bot Up Bai Ready...")
     updater.start_polling()
     updater.idle()
